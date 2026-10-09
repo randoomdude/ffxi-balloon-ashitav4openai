@@ -1,0 +1,59 @@
+name: Check and package Balloon
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-test.txt
+      - run: python tests/test_cinematic.py
+      - run: python tools/package_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: balloon-package
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: github.event_name != 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: balloon-package
+          path: dist
+      - name: Publish a new version as a pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version=$(python -c "import re; print(re.search(r\"addon.version\\s*=\\s*'([^']+)'\", open('Balloon.lua').read()).group(1))")
+          tag="v${version}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists; keeping its assets unchanged."
+            exit 0
+          fi
+          gh release create "$tag" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Balloon ${version}" \
+            --notes-file "docs/releases/${version}.md" \
+            --prerelease

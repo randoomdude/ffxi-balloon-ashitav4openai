@@ -11,7 +11,7 @@ defaults.scale = 1
 defaults.portraits = true
 defaults.always_on_top = true
 defaults.in_combat = false
-defaults.cinematic = true
+defaults.cinematic = false
 defaults.system_messages = true
 defaults.control_fps = true
 

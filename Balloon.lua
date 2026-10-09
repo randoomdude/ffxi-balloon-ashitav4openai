@@ -1,8 +1,8 @@
 addon.name      = 'balloon'
-addon.author    = 'Originally by Hando, English support added by Yuki & Kenshi, themes added by Ghosty, ported to Ashita v4 by onimitch.'
-addon.version   = '4.3.2'
+addon.author    = 'Originally by Hando, English support added by Yuki & Kenshi, themes added by Ghosty, ported to Ashita v4 by onimitch. Cinematic maintenance by randoomdude.'
+addon.version   = '4.3.2-cinematic.1'
 addon.desc      = 'Displays NPC chat logs in a UI Balloon, similar to FFXIV.'
-addon.link      = 'https://github.com/onimitch/ffxi-balloon-ashitav4'
+addon.link      = 'https://github.com/randoomdude/ffxi-balloon-ashitav4openai'
 
 -- Ashita libs
 require('common')
@@ -22,6 +22,7 @@ local ui = require('ui')
 local tests = require('tests')
 local defines = require('defines')
 local helpers = require('helpers')
+local cinematic_ui = require('cinematic').new(helpers)
 
 
 local chat_modes = defines.chat_modes
@@ -238,51 +239,85 @@ balloon.handle_cinematics = function(player_ent, delta_time)
             balloon.in_cinematic = true
             balloon.limit_fps(true)
 
-            if balloon.settings.cinematic and balloon.settings.display_mode > 0 then
-                -- Show game UI if dialog option open
-                if helpers.is_dialog_option_open() == balloon.auto_hide_game_ui then
-                    balloon.auto_hide_game_ui = not balloon.auto_hide_game_ui
-                    helpers.set_game_interface_hidden(balloon.auto_hide_game_ui)
-
-                    -- Small delay before next change
-                    balloon.auto_hide_after = balloon.auto_hide_delay
-                end
-            end
+            -- Native UI visibility is maintained independently below.
         else
             -- Not in a cutscene
             balloon.in_cinematic = false
             balloon.limit_fps(false)
 
-            if balloon.auto_hide_game_ui then
-                balloon.auto_hide_game_ui = false
-                helpers.set_game_interface_hidden(false)
-            end
+
         end
     else
         balloon.in_cinematic = false
         balloon.in_event = false
         balloon.limit_fps(false)
 
-        if balloon.auto_hide_game_ui then
-            balloon.auto_hide_game_ui = false
-            helpers.set_game_interface_hidden(false)
+
+    end
+end
+
+-- NPC events can run without the strict server-status/camera combination.
+-- Use the event flag, and keep the native UI flag current before rendering.
+balloon.update_cinematic_ui = function()
+    local player = AshitaCore:GetMemoryManager():GetPlayer()
+    local entity = GetPlayerEntity()
+    local valid = player ~= nil and not player.isZoning and entity ~= nil
+    local ignored = false
+    if balloon.last_known_target ~= nil then
+        for _, target in pairs(balloon.cinematic_ignore_targets) do
+            if string.find(balloon.last_known_target, target) then
+                ignored = true
+                break
+            end
         end
+    end
+    cinematic_ui:update({
+        enabled = balloon.settings.cinematic == true and (balloon.settings.display_mode or 0) > 0,
+        active = valid and (helpers.is_event_system_active() or entity.StatusServer == 4),
+        ignore = ignored,
+        options = valid and helpers.is_dialog_option_open(),
+        typing = valid and helpers.is_chat_open(),
+        ready = not ui:hidden() and helpers.stepdialog.available,
+    })
+    balloon.auto_hide_game_ui = cinematic_ui.hidden
+end
+
+-- Explicitly enabling cinematic mode must also cancel the Escape/slash
+-- suspension. Reopen the last dialogue when Escape dismissed its balloon.
+balloon.rearm_cinematic = function()
+    cinematic_ui:resume()
+    local player = AshitaCore:GetMemoryManager():GetPlayer()
+    local entity = GetPlayerEntity()
+    local active = player ~= nil and not player.isZoning and entity ~= nil and
+        (helpers.is_event_system_active() or entity.StatusServer == 4)
+    if active and (balloon.settings.display_mode or 0) > 0 and
+        ui:hidden() and balloon.last_text ~= '' then
+        balloon.process_balloon(balloon.last_text, balloon.last_mode)
     end
 end
 
 balloon.handle_button_continue = function(e)
-    if helpers.is_chat_open() then
+    if e.blocked or helpers.is_chat_open() or helpers.is_dialog_option_open() then
         return
     end
 
-    if not ui:hidden() then
-        balloon.close()
-
-        -- If the game UI is hidden, then ensure dialog continues
-        if helpers.is_game_interface_hidden() and not helpers.is_dialog_option_open() then
-            e.blocked = helpers.stepdialog.run()
+    if helpers.is_game_interface_hidden() then
+        -- Keep the balloon visible: the native press may finish the current
+        -- page rather than advance it. A later press must still work.
+        if helpers.is_event_system_active() or balloon.in_event then
+            local ok, advanced = pcall(helpers.stepdialog.run)
+            if ok and advanced then
+                e.blocked = true
+            else
+                cinematic_ui:suspend()
+                balloon.auto_hide_game_ui = false
+            end
         end
+        return
     end
+
+    -- With native UI visible, let the normal game input handle the press.
+    if not ui:hidden() then balloon.close() end
 end
 
 balloon.limit_fps = function(enabled)
@@ -316,7 +351,7 @@ balloon.process_incoming_message = function(e)
     -- In other words cutscene system message are always displayed. This is mainly because they can be 
     -- easily missed if the user also has the UI hidden duuring cutscenes.
     if mode == chat_modes.system then
-        if not balloon.in_cinematic and not balloon.settings.system_message then
+        if not balloon.in_cinematic and not balloon.settings.system_messages then
             return
         end
     end
@@ -552,7 +587,8 @@ balloon.print_help = function(isError)
         { '/balloon always_on_top', 'Toggle always on top (IMGUI mode).' },
         { '/balloon in_combat', 'Toggle displaying balloon during combat.' },
         { '/balloon system', 'Toggle displaying balloon for system messages (e.g Home Point).' },
-        { '/balloon cinematic', 'Toggle auto hide of game UI during cutscenes.' },
+        { '/balloon cinematic [on|off]', 'Toggle or explicitly set native UI hiding during NPC events.' },
+        { '/balloon status', 'Show event detection and native UI visibility.' },
         { '/balloon fps', 'Toggle fps control during cutscenes to prevent lockups in certain cutscenes.' },
         { '/balloon test <name> <lang> <mode>', 'Display a test bubble. Lang: - (auto), en or ja. Mode: 1 (dialogue), 2 (system). "/balloon test" to see the list of available tests.' },
     }
@@ -575,6 +611,31 @@ ashita.events.register('command', 'balloon_command_cb', function(e)
     -- Block all related commands..
     e.blocked = true
 
+    if (#args == 3 and args[2]:any('cinematic', 'cinema') and args[3]:any('on', 'off')) then
+        balloon.settings.cinematic = args[3] == 'on'
+        if balloon.settings.cinematic then balloon.rearm_cinematic() end
+        balloon.update_cinematic_ui()
+        settings.save()
+        print(chat.header(addon.name):append(chat.message('Cinematic mode: ' .. args[3])))
+        return
+    end
+
+    if (#args == 2 and args[2] == 'status') then
+        local entity = GetPlayerEntity()
+        print(chat.header(addon.name):append(chat.message(
+            'cinematic=' .. tostring(balloon.settings.cinematic) ..
+            ' mode=' .. tostring(balloon.settings.display_mode) ..
+            ' event=' .. tostring(helpers.is_event_system_active()) ..
+            ' server=' .. tostring(entity and entity.StatusServer) ..
+            ' camera=' .. tostring(helpers.is_user_camera_enabled()) ..
+            ' choice=' .. tostring(helpers.is_dialog_option_open()) ..
+            ' typing=' .. tostring(helpers.is_chat_open()) ..
+            ' hidden=' .. tostring(helpers.is_game_interface_hidden()) ..
+            ' owned=' .. tostring(cinematic_ui.owned) ..
+            ' suspended=' .. tostring(cinematic_ui.suspended == true))))
+        return
+    end
+
     -- Handle: /balloon help
     if (#args == 2 and args[2]:any('help')) then
         balloon.print_help(false)
@@ -584,6 +645,7 @@ ashita.events.register('command', 'balloon_command_cb', function(e)
     -- Handle: /balloon [0,1,2]
     if (#args == 2 and args[2]:any('0', '1', '2')) then
         balloon.settings.display_mode = tonumber(args[2])
+        balloon.update_cinematic_ui()
         local mode_desc = {
             'Hiding balloon & displaying log.',
             'Show balloon & hide log.',
@@ -696,7 +758,7 @@ ashita.events.register('command', 'balloon_command_cb', function(e)
             move_closes = 'move_close',
             cinema = 'cinematic',
             system = 'system_messages',
-            fps = 'control_fps'
+            fps = 'control_fps',
         }
         local setting_names = {
             portraits = 'Display portraits',
@@ -712,13 +774,17 @@ ashita.events.register('command', 'balloon_command_cb', function(e)
 
         local old_val = balloon.settings[setting_key]
         balloon.settings[setting_key] = not old_val
+        if setting_key == 'cinematic' then
+            if balloon.settings.cinematic then balloon.rearm_cinematic() end
+            balloon.update_cinematic_ui()
+        end
 
         -- Some additional logic we need to run depending on the setting change
         if setting_key == 'portraits' then
             balloon.load_theme()
         elseif setting_key == 'system_messages' then
             balloon.load_chat_mode_settings()
-        elseif setting_key == 'fps' then
+        elseif setting_key == 'control_fps' then
             balloon.limit_fps(balloon.limit_fps_enabled)
         end
 
@@ -773,6 +839,9 @@ ashita.events.register('load', 'balloon_load', function()
     balloon.settings = settings.load(default_settings)
     balloon.last_frame_time = os.clock()
 
+    -- Restore native access on reload, while honoring the saved preference.
+    -- Hiding waits for a visible dialogue and an available advance path.
+    helpers.set_game_interface_hidden(false)
     balloon.initialize()
 
     -- Register for settings updates
@@ -785,6 +854,9 @@ ashita.events.register('load', 'balloon_load', function()
 end)
 
 ashita.events.register('unload', 'balloon_unload', function()
+    cinematic_ui:restore()
+    helpers.set_game_interface_hidden(false)
+    balloon.limit_fps(false)
     ui:destroy()
 end)
 
@@ -860,7 +932,12 @@ ashita.events.register('text_in', 'balloon_text_in', function(e)
     end
 end)
 
+ashita.events.register('d3d_beginscene', 'balloon_cinematic_beginscene', function()
+    balloon.update_cinematic_ui()
+end)
+
 ashita.events.register('d3d_present', 'balloon_d3d_present', function()
+    balloon.update_cinematic_ui()
     -- Calculate delta time for animations
     local frame_time = os.clock()
     local delta_time = frame_time - balloon.last_frame_time
@@ -945,7 +1022,22 @@ end)
 
 ashita.events.register('key_data', 'balloon_key_data', function(e)
     -- DirectInput key codes http://www.flint.jp/misc/?q=dik
-    if e.down and (e.key == 0x01 or e.key == 0x1C or e.key == 0x9C) then
+    if not e.down then return end
+    if e.key == 0x01 and helpers.is_game_interface_hidden() then
+        -- Escape always gives the player the native UI back for this event.
+        cinematic_ui:suspend()
+        balloon.auto_hide_game_ui = false
+        balloon.close()
+        e.blocked = true
+        return
+    end
+    if (e.key == 0x35 or e.key == 0xB5) and helpers.is_game_interface_hidden() then
+        -- Restore first, then pass slash through so commands can be typed.
+        cinematic_ui:suspend()
+        balloon.auto_hide_game_ui = false
+        return
+    end
+    if e.key == 0x1C or e.key == 0x9C then
         balloon.handle_button_continue(e)
     end
 end)

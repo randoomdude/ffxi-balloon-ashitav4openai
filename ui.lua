@@ -596,7 +596,7 @@ function ui:render_imgui(delta_time)
 
     imgui.SetNextWindowPos({ self._bounds[1] - window_padding, self._bounds[2] - window_padding }, ImGuiCond_Always)
     imgui.SetNextWindowSize({ self._bounds[3] + window_padding, self._bounds[4] + window_padding }, ImGuiCond_Always)
-    imgui.SetNextWindowFocus()
+    -- Keep keyboard focus with native chat and other Ashita panels.
 
     local windowFlags = bit.bor(ImGuiWindowFlags_NoDecoration, ImGuiWindowFlags_NoFocusOnAppearing, ImGuiWindowFlags_NoNav, ImGuiWindowFlags_NoBackground, ImGuiWindowFlags_NoMove)
 

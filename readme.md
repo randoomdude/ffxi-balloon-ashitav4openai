@@ -1,130 +1,119 @@
-# Balloon (Ashita v4 Port)
+# Balloon for Ashita v4 — cinematic controls
 
-This is an [Ashita v4](https://github.com/AshitaXI/Ashita-v4beta) port of the Balloon addon, forked from [StarlitGhost's version](https://github.com/StarlitGhost/Balloon).
+NPC dialogue in a movable, themed balloon, with native chat/UI hiding during NPC events. This community fork of [onimitch's Ashita v4 port](https://github.com/onimitch/ffxi-balloon-ashitav4) is maintained by **randoomdude**.
 
-The original Windower Balloon addon was created by Hando and modified by Kenshi, Yuki and Ghosty.
+**Experimental pre-release:** the cinematic handlers have offline regression coverage. Broader in-game cutscene behavior still needs verification.
 
-This Ashita v4 port was created by onimitch.
+[Download the complete addon](https://github.com/randoomdude/ffxi-balloon-ashitav4openai/releases) · [Changes](CHANGELOG.md) · [Report an issue](https://github.com/randoomdude/ffxi-balloon-ashitav4openai/issues) · [Credits](CREDITS.md)
 
-![Example default](https://github.com/onimitch/ffxi-balloon-ashitav4/blob/main/Example-default.png "Example default")
+![Balloon's default theme](Example-default.png)
 
-## How to install:
-1. Download the latest Release from the [Releases page](https://github.com/onimitch/ffxi-balloon-ashitav4/releases)
-2. Extract the **_balloon_** folder to your **_Ashita4/addons_** folder
+## What this fork changes
 
-## How to enable it in-game:
-1. Login to your character in FFXI
-2. Type `/addon load balloon`
+- Escape or `/` restores the native UI during a hidden dialogue.
+- `/balloon cinematic on` re-enables hiding in the same event, without an addon reload.
+- Re-enabling after Escape can reopen the current dialogue balloon.
+- Advance attempts retain the visible balloon so subsequent presses remain available.
+- Hiding checks the current UI flag before rendering, and restores UI for choices, typing, event exit and unload.
+- Balloon no longer requests keyboard focus every frame.
+- `/balloon status` reports event and visibility state for troubleshooting.
 
-## How to have Ashita load it automatically:
-1. Go to your Ashita v4 folder
-2. Open the file **_Ashita4/scripts/default.txt_**
-3. Add `/addon load balloon` to the list of addons to load under "Load Plugins and Addons"
+Upstream themes, portraits, scaling, font support and existing settings are retained. See the [changelog](CHANGELOG.md) for the complete change list.
 
-## Commands
+## Install
 
-You can use `/balloon` or `/bl`
+1. Download `balloon-4.3.2-cinematic.1.zip` from this fork's [Releases page](https://github.com/randoomdude/ffxi-balloon-ashitav4openai/releases).
+2. Extract it into your Ashita `addons` directory. The resulting path must be `addons/balloon/Balloon.lua`.
+3. In FFXI, run:
 
-`/balloon 0` - Hide balloon & display npc text in game log window.
+```text
+/addon load balloon
+/balloon 2
+/balloon cinematic on
+```
 
-`/balloon 1` - Show balloon & hide npc text from game log window.
+The release ZIP includes the required **gdifonts** library. GitHub's automatic “Source code” ZIP does not include the submodule contents and is not a complete addon installation. For a source checkout, use `git clone --recurse-submodules` as described in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-`/balloon 2` - Show balloon & display npc text in game log window.
+Cinematic mode defaults to **off for fresh settings**. Existing saved preferences are honored. To load Balloon automatically, add `/addon load balloon` to the startup script used by your Ashita boot profile; the saved cinematic preference is reused.
 
-`/balloon reset` - Reset all settings back to default.
+## Update an existing installation
 
-`/balloon reset pos` - Reset the balloon position.
+Unload Balloon with `/addon unload balloon`, back up `addons/balloon`, and replace it with the release's `balloon` folder. Keep `config/addons/balloon` so positions, themes and other preferences survive. Load it again afterward. If updating files while the addon is loaded, reload it once with `/addon reload balloon`.
 
-`/balloon theme <theme>` - Switch theme (see below for info on Themes).
+## Cinematic controls
 
-`/balloon scale <scale>` - Scales the size of the balloon by a decimal (eg: 1.5).
+| Action | Result |
+|---|---|
+| `/balloon cinematic on` | Enable or re-enable native UI hiding. |
+| `/balloon cinematic off` | Disable hiding and restore owned native UI state. |
+| `/balloon cinematic` | Toggle the preference. |
+| **Enter / controller confirm** | Continue dialogue through the native advance helper when the UI is hidden. |
+| **Escape** while hidden | Restore native UI, close the balloon and suspend hiding for this event. |
+| **`/`** while hidden | Restore native UI and pass the key through for command entry; suspend hiding for this event. |
+| `/balloon cinematic on` after recovery | Clear the suspension and hide again once native typing has closed. |
 
-`/balloon delay <seconds>` - Delay before closing promptless balloons.
+Hiding affects the **native game UI**, including both original chat windows. Separately rendered addon windows such as FancyChat have their own visibility rules. Choice menus temporarily show native UI.
 
-`/balloon speed <chars per second>` - Speed that text is displayed, in characters per second. Set to 0 to disable.
+To retain a usable advance path, the addon hides only when a balloon is visible and the native advance helper is available. Native UI may reappear during gaps with no dialogue balloon. An event ending clears a temporary Escape/slash suspension.
 
-`/balloon portrait` - Toggle the display of character portraits, if the theme has settings for them.
+## Display modes: dialogue text versus window visibility
 
-`/balloon move_close` - Toggle balloon auto-close on player movement.
+These modes control the dialogue copy in the native log; cinematic mode separately controls UI visibility.
 
-`/balloon always_on_top` - Toggle always on top (IMGUI mode). This mode renders the final elements using IMGUI to ensure Balloon always appears in front of any other custom UI. If for some reason you have issues with this mode, you can use this command to disable it.
+| Command | Dialogue display |
+|---|---|
+| `/balloon 0` | Native dialogue only; no balloon or cinematic hiding. |
+| `/balloon 1` | Balloon dialogue; native log shows abbreviated `NPC: ...` placeholders with prompt markers. |
+| `/balloon 2` | Full dialogue in both Balloon and native chat. Recommended when using Escape/slash recovery. |
 
-`/balloon in_combat` - Toggle displaying balloon during combat (off by default).
+Both modes 1 and 2 support cinematic hiding. The alias `/bl` also works.
 
-`/balloon system` - Toggle displaying balloon for system messages, e.g Home Points. (on by default).
+## Appearance and other commands
 
-`/balloon cinematic` - Toggle cinematic mode - auto hide game UI during cutscenes (on by default).
+Drag an open balloon with the mouse to position it, including at the bottom center.
 
-`/balloon fps` - Toggle fps control during cutscenes to prevent lockups in certain cutscenes (on by default).
+| Command | Purpose |
+|---|---|
+| `/balloon theme <theme>` | Choose a theme. |
+| `/balloon scale <number>` | Set a size multiplier, for example `1.5`. |
+| `/balloon speed <number>` | Characters per second; `0` shows all text immediately. |
+| `/balloon delay <seconds>` | Close delay for balloons with no advance prompt. |
+| `/balloon portrait` | Toggle NPC portraits. |
+| `/balloon move_close` | Toggle closing on player movement. |
+| `/balloon always_on_top` | Toggle the ImGui rendering path. |
+| `/balloon in_combat` | Toggle balloons during combat. |
+| `/balloon system` | Toggle system messages outside cutscenes. |
+| `/balloon fps` | Toggle cutscene FPS control. |
+| `/balloon reset pos` | Reset position without resetting other settings. |
+| `/balloon reset` | Reset all settings to this fork's defaults. |
+| `/balloon test` | List sample dialogue balloons. |
+| `/balloon test bahamut` | Preview a sample balloon. |
+| `/balloon status` | Print cinematic/event, menu, typing, hidden, owned and suspended state. |
+| `/balloon help` | Show command help. |
 
-`/balloon test <name> <lang> <mode>` - Display a test bubble. Lang: "-" (auto), "en" or "ja". Mode: 1 (dialogue), 2 (system).
+### Included themes
 
-`/balloon test` - List all available tests.
+`default`, `ffvii-r`, `ffxi`, `snes-ff`, `ffxi-window5` and `ffxi-window5-solid`.
 
-## Cinematic mode
+The FFVII-R theme uses [Libre Franklin](https://fonts.google.com/specimen/Libre+Franklin). The SNES theme uses [DotGothic16](https://fonts.google.com/specimen/DotGothic16), with DePixel as an alternative. Install the relevant font in Windows before selecting those themes.
 
-Balloon will auto hide the game UI during a cutscene and handle key/button presses to continue the dialogue.
-If the game presents you with options during a cutscene, Balloon will temporarily re-show the game UI and hide it again once you've made a selection.
+For customization, copy a theme from `addons/balloon/themes/<theme>` to `config/addons/balloon/themes/<your-theme>`, edit its XML or images, then use `/balloon theme <your-theme>`. Upstream bold/italic support and Window Style 5 themes are included.
 
-Cinematic mode is enabled by default. 
-If you want to turn it off, you can toggle the option using `/balloon cinematic`.
+## Troubleshooting
 
-## Moving balloon
+- **Chat returns after Escape or `/`:** expected recovery behavior. Use `/balloon cinematic on` to resume hiding in the same event.
+- **Only hides once:** confirm this fork's current version is loaded. Reload once after replacing addon files; subsequent `on` commands should not need a reload.
+- **Nothing hides:** mode 0, an unavailable advance helper, a missing balloon, native typing or a choice menu can keep UI visible. Check `/balloon status`.
+- **Cinematic preference is on but UI is suspended:** run `/balloon cinematic on` explicitly.
+- **No balloon after an update:** check that the ZIP contains `balloon/gdifonts/include.lua` and that files were not extracted into a second nested `balloon` folder.
+- **Unable to type commands:** Escape or `/` restores native UI in this fork. You can also use the Ashita sidebar's Addons panel to unload/reload Balloon if native chat is unavailable.
 
-While the balloon is open you can use the mouse to click and drag it to move it around.
+For issue reports, include addon/Ashita versions, client type, the affected NPC/cutscene and `/balloon status` output when possible. Reports belong in [this fork's issue tracker](https://github.com/randoomdude/ffxi-balloon-ashitav4openai/issues).
 
-## Themes
+## Development and validation
 
-There are currently four themes bundled with the addon.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for source setup, regression checks and release packaging. The checks mock native game interfaces and do not constitute complete in-game verification.
 
-### default
+## Credits and license
 
-![Example default](https://github.com/onimitch/ffxi-balloon-ashitav4/blob/main/Example-default.png "Example default")
-
-### ffvii-r
-
-Requires "Libre Franklin Medium" or "Libre Franklin Regular" font, which you can get free from [Google Fonts](https://fonts.google.com/specimen/Libre+Franklin). Install the font in Windows.
-
-![Example ffvii-r](https://github.com/onimitch/ffxi-balloon-ashitav4/blob/main/Example-ffvii-r.png "Example ffvii-r")
-
-### ffxi
-
-![Example ffxi](https://github.com/onimitch/ffxi-balloon-ashitav4/blob/main/Example-ffxi.png "Example ffxi")
-
-### snes-ff
-
-Uses "DotGothic16" font, which you can get free from [Google Fonts](https://fonts.google.com/specimen/DotGothic16). Install the font in Windows.
-
-Alternatively it will look for "DePixel" font if "DotGothic16" not installed, which you can get free from [Be Fonts](https://befonts.com/depixel-font-family.html).
-
-![Example snes-ff](https://github.com/onimitch/ffxi-balloon-ashitav4/blob/main/Example-snes-ff.png "Example snes-ff")
-
-## Theme customisation
-
-If you want to customise a theme, copy one of the existing themes from `addons/balloon/themes` into `config/addons/balloon/themes`.
-
-Example: `config/addons/balloon/themes/my_theme`.
-
-In game switch to your new theme: `/balloon theme my_theme`.
-
-Edit the theme.xml file as you wish, or replace the pngs with alternatives. Sorry there isn't any more help on this for now but hopefully the existing themes are enough to figure out how it works.
-
-Reload the theme by using: `/balloon theme my_theme`.
-
-See your changes immediately by using one of the test prompts:
-
-e.g: `/balloon test bahamut` or `/balloon test colors`.
-
-
-## Issues/Support
-
-I only have limited time available to offer support, but if you have a problem, have discovered a bug or want to request a feature, please [create an issue on GitHub](https://github.com/onimitch/ffxi-balloon-ashitav4/issues).
-
-
-## Gdifonts
-
-This addon uses a custom fork of ThornyXI's gdifonts and gdifonttextures, in order to support colored regions and clipping:
-
-https://github.com/onimitch/gdifonts/tree/regions
-
-https://github.com/onimitch/gdifonttexture/tree/regions
+Original Balloon by Hando, with modifications by Kenshi, Yuki and Ghosty; Ashita v4 port by onimitch. This fork retains the upstream license, themes, portraits and contributor credits. See [CREDITS.md](CREDITS.md) and [LICENSE](LICENSE). The gdifonts dependency is pinned to the upstream revision; its own license notices remain included.
