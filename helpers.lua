@@ -7,14 +7,80 @@ local helpers = {}
 
 local pGameMenu = ashita.memory.find('FFXiMain.dll', 0, '8B480C85C974??8B510885D274??3B05', 16, 0)
 helpers.get_game_menu_name = function()
+    if pGameMenu == nil or pGameMenu == 0 then
+        return ''
+    end
     local menu_pointer = ashita.memory.read_uint32(pGameMenu)
+    if menu_pointer == nil or menu_pointer == 0 then
+        return ''
+    end
     local menu_val = ashita.memory.read_uint32(menu_pointer)
-    if menu_val == 0 then
+    if menu_val == nil or menu_val == 0 then
         return ''
     end
     local menu_header = ashita.memory.read_uint32(menu_val + 4)
+    if menu_header == nil or menu_header == 0 then
+        return ''
+    end
     local menu_name = ashita.memory.read_string(menu_header + 0x46, 16)
-    return string.gsub(menu_name, '\x00', ''):trimex()
+    if menu_name == nil then
+        return ''
+    end
+    return string.gsub(menu_name, '%z', ' '):trimex()
+end
+local function is_quantity_menu(menu_name)
+    -- Exact native number-entry controls; NPC names and ordinary choices do not qualify.
+    local short_name = menu_name:match('^menu%s*([^%s]+)%s*$')
+    return short_name == 'numctrl' or short_name == 'itemctrl'
+end
+local native_entry_active = false
+helpers.is_quantity_input_open = function()
+    local menu = helpers.get_game_menu_name()
+    if is_quantity_menu(menu) then return true end
+    -- NPCs also use the chat input line (Enter number), rather than numctrl.
+    -- 0x21 is Ashita's OpenedOther input status; 0x11 is ordinary chat.
+    local chat = AshitaCore:GetChatManager()
+    local status = chat.IsInputOpen and chat:IsInputOpen() or 0
+    if status == 0 then native_entry_active = false; return false end
+    local raw = chat.GetInputTextRaw and chat:GetInputTextRaw() or ''
+    if tostring(raw or ''):match('^%s*/') then
+        native_entry_active = false
+        return false -- Preserve explicit slash recovery and ordinary commands.
+    end
+    local entity = GetPlayerEntity()
+    local in_event = helpers.is_event_system_active() or (entity and entity.StatusServer == 4)
+    local inline = menu:match('^menu%s*inline%s*$') ~= nil
+    native_entry_active = (in_event or native_entry_active) and (status == 0x21 or inline) or false
+    return native_entry_active
+end
+
+-- Same native message-window pointers used by FancyChat. Hold only the chat
+-- display timers while input is active; do not edit entered text or submit it.
+local pMessageWindows = nil
+local nextMessageScan = 0
+helpers.show_native_input_chat = function(window_index)
+    helpers.set_game_interface_hidden(false)
+    if not pMessageWindows or pMessageWindows == 0 then
+        if os.clock() < nextMessageScan then return false end
+        nextMessageScan = os.clock() + 1
+        pMessageWindows = ashita.memory.find('FFXiMain.dll', 0, 'A1????????C64059018B0D????????C6415901C20800', 0, 0)
+        if not pMessageWindows or pMessageWindows == 0 then return false end
+    end
+    for offset = 1, 0x0B, 0x0A do
+        local selected = window_index == nil or window_index == (offset == 1 and 1 or 2)
+        local address = selected and ashita.memory.read_uint32(pMessageWindows + offset) or nil
+        if address and address ~= 0 then
+            local window = ashita.memory.read_uint32(address)
+            if window and window ~= 0 then
+                local timer = window + 0x34
+                if ashita.memory.read_uint32(timer) < 120 then
+                    ashita.memory.unprotect(timer, 4)
+                    ashita.memory.write_uint32(timer, 120)
+                end
+            end
+        end
+    end
+    return true
 end
 helpers.is_chat_open = function()
     local menu_name = helpers.get_game_menu_name()
@@ -22,7 +88,7 @@ helpers.is_chat_open = function()
 end
 helpers.is_dialog_option_open = function()
     local menu_name = helpers.get_game_menu_name()
-    return menu_name:match('menu[%s]+query') ~= nil
+    return menu_name:match('menu[%s]+query') ~= nil or is_quantity_menu(menu_name)
 end
 
 -- event system
